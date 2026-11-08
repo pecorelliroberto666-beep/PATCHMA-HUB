@@ -1,2 +1,2 @@
-# PATCHMA-HUB
-Patchma hub lastest version! (V61)
+# HAT SCRIPTS
+Credits to original creators! NOT by me!
