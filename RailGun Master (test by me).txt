@@ -45,7 +45,7 @@ local crunning=coroutine.running
 local vmagnitude=vector.magnitude --faster than indexing with Magnitude
 local vnormalize=vector.normalize --faster than indexing with Unit
 
---the script doesnt have to read global varaibles every time to get them
+--the script doesnt have to read global varaibles every time to get the
 --why not have them saved in local varaibles for faster access times
 local next=next
 local pcall=pcall
