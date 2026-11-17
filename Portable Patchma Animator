@@ -1,0 +1,293 @@
+--================================================
+-- PARTE 1 DI 3: CORE & DOPPI OFFSETS (R6 + PATCHMA)
+--================================================
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local guiParent = (gethui and gethui()) or CoreGui or player:WaitForChild("PlayerGui")
+
+-- Offset reali per NON far sparire il personaggio mentre animi
+local REAL_R6_OFFSETS = {
+	Neck = { C0 = CFrame.new(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0), C1 = CFrame.new(0, -0.5, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0) },
+	RootJoint = { C0 = CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0), C1 = CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0) },
+	RightShoulder = { C0 = CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0), C1 = CFrame.new(-0.5, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0) },
+	LeftShoulder = { C0 = CFrame.new(-1, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0), C1 = CFrame.new(0.5, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0) },
+	RightHip = { C0 = CFrame.new(1, -1, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0), C1 = CFrame.new(0.5, 1, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0) },
+	LeftHip = { C0 = CFrame.new(-1, -1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0), C1 = CFrame.new(-0.5, 1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0) }
+}
+
+-- I tuoi offset esatti di Patchma Hub usati per generare il codice finale
+local PATCHMA_OFFSETS = {
+	Neck = { C0 = CFrame.new(0, 1, 0, -1, 0, 0, 0, 1, 0, 1, 0, 0), C1 = CFrame.new(0, -0.5, 0, -1, 0, 0, 0, 1, 0, 1, 0, 0) },
+	RootJoint = { C0 = CFrame.new(0, 0, 0), C1 = CFrame.new(0, 0, 0) },
+	RightShoulder = { C0 = CFrame.new(1, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0), C1 = CFrame.new(-0.5, 0.5, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0) },
+	LeftShoulder = { C0 = CFrame.new(-1, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0), C1 = CFrame.new(0.5, 0.5, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0) },
+	RightHip = { C0 = CFrame.new(1, -1, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0), C1 = CFrame.new(0.5, 1, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0) },
+	LeftHip = { C0 = CFrame.new(-1, -1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0), C1 = CFrame.new(-0.5, 1, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0) }
+}
+
+local PART_TO_JOINT = {
+	["Head"] = "Neck", ["Torso"] = "RootJoint", ["HumanoidRootPart"] = "RootJoint",
+	["Right Arm"] = "RightShoulder", ["Left Arm"] = "LeftShoulder",
+	["Right Leg"] = "RightHip", ["Left Leg"] = "LeftHip"
+}
+
+local hue, sine = 0, 0
+local rgbColor = Color3.new(1, 0, 0)
+local rgbStrokes, rgbTexts, jointsData = {}, {}, {}
+local currentJointKey = nil
+local freezeAnimations = true
+
+local outline = Instance.new("SelectionBox")
+outline.Name, outline.LineThickness, outline.SurfaceTransparency, outline.Parent = "RGBSelection", 0.08, 1, Workspace
+
+local function registerRGBStroke(o) table.insert(rgbStrokes, o) return o end
+local function registerRGBText(o) table.insert(rgbTexts, o) return o end
+
+local function findJointInCharacter(char, jName)
+	for _, d in ipairs(char:GetDescendants()) do
+		if (d:IsA("Motor6D") or d:IsA("Weld")) and d.Name == jName then return d end
+	end
+end
+
+local function setupJointEntry(key, jInst, realC0, realC1, patchC0, patchC1)
+	if not jointsData[key] then
+		local r0 = realC0 or (jInst and jInst.C0) or CFrame.new()
+		local r1 = realC1 or (jInst and jInst.C1) or CFrame.new()
+		jointsData[key] = {
+			joint = jInst,
+			realC0 = r0, realC1 = r1,
+			patchC0 = patchC0 or r0, patchC1 = patchC1 or r1,
+			pos = Vector3.new(), rot = Vector3.new(),
+			sinPos = Vector3.new(), sinRot = Vector3.new(),
+			sinPosSpeed = 2, sinRotSpeed = 3
+		}
+	else
+		jointsData[key].joint = jInst
+	end
+	return jointsData[key]
+end
+
+local function getAnimatedOffset(d, t)
+	local sP, sR = math.sin(t * d.sinPosSpeed), math.sin(t * d.sinRotSpeed)
+	return CFrame.new(d.pos + d.sinPos * sP) * CFrame.Angles(math.rad(d.rot.X + d.sinRot.X * sR), math.rad(d.rot.Y + d.sinRot.Y * sR), math.rad(d.rot.Z + d.sinRot.Z * sR))
+end
+
+local function initCharacterJoints(char)
+	jointsData = {}
+	for jName, realOff in pairs(REAL_R6_OFFSETS) do
+		local j = findJointInCharacter(char, jName)
+		local pOff = PATCHMA_OFFSETS[jName]
+		if j then
+			j.C0, j.C1 = realOff.C0, realOff.C1
+			setupJointEntry(jName, j, realOff.C0, realOff.C1, pOff.C0, pOff.C1)
+		end
+	end
+end
+
+initCharacterJoints(character)
+
+RunService.Stepped:Connect(function(_, dt)
+	sine = sine + dt
+	if not freezeAnimations then return end
+	for _, d in pairs(jointsData) do
+		if d.joint and d.joint.Parent then d.joint.C0 = d.realC0 * getAnimatedOffset(d, sine) end
+	end
+end)
+--================================================
+-- PARTE 2 DI 3: GUI & CONTROLLI ARTO
+--================================================
+if guiParent:FindFirstChild("RGBCFrameAnimatorGUI") then guiParent.RGBCFrameAnimatorGUI:Destroy() end
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name, screenGui.ResetOnSpawn, screenGui.IgnoreGuiInset, screenGui.Parent = "RGBCFrameAnimatorGUI", false, true, guiParent
+
+local function makeSquaredFrame(p, s, pos, anc)
+	local f = Instance.new("Frame")
+	f.Size, f.Position, f.AnchorPoint, f.BackgroundColor3, f.BorderSizePixel, f.Parent = s, pos, anc or Vector2.new(), Color3.fromRGB(12,12,12), 0, p
+	local st = Instance.new("UIStroke") st.Thickness, st.ApplyStrokeMode, st.Parent = 4, Enum.ApplyStrokeMode.Border, f
+	registerRGBStroke(st) return f
+end
+
+local function makeSquaredButton(p, txt, s, pos, anc)
+	local b = Instance.new("TextButton")
+	b.Size, b.Position, b.AnchorPoint, b.BackgroundColor3, b.BorderSizePixel = s, pos, anc or Vector2.new(), Color3.fromRGB(20,20,20), 0
+	b.Font, b.Text, b.TextSize, b.TextColor3, b.Parent = Enum.Font.Code, txt, 13, Color3.fromRGB(255,255,255), p
+	local st = Instance.new("UIStroke") st.Thickness, st.ApplyStrokeMode, st.Parent = 3, Enum.ApplyStrokeMode.Border, b
+	registerRGBStroke(st) return b
+end
+
+local topSquareBtn = makeSquaredButton(screenGui, "C0/C1", UDim2.new(0, 56, 0, 56), UDim2.new(0.5, 0, 0, 4), Vector2.new(0.5, 0))
+registerRGBText(topSquareBtn)
+
+local editorFrame = makeSquaredFrame(screenGui, UDim2.new(0, 290, 0, 380), UDim2.new(1, -14, 0.5, 0), Vector2.new(1, 0.5))
+editorFrame.Visible = false
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size, titleLabel.Position, titleLabel.BackgroundTransparency, titleLabel.Font, titleLabel.TextSize, titleLabel.TextXAlignment, titleLabel.Text, titleLabel.Parent = UDim2.new(1, -35, 0, 28), UDim2.new(0, 8, 0, 4), 1, Enum.Font.Code, 14, Enum.TextXAlignment.Left, "JOINT: NONE", editorFrame
+registerRGBText(titleLabel)
+
+local closeEditorBtn = makeSquaredButton(editorFrame, "X", UDim2.new(0, 24, 0, 24), UDim2.new(1, -4, 0, 4), Vector2.new(1, 0))
+closeEditorBtn.MouseButton1Click:Connect(function() editorFrame.Visible = false end)
+
+local editorScroll = Instance.new("ScrollingFrame")
+editorScroll.Size, editorScroll.Position, editorScroll.BackgroundTransparency, editorScroll.BorderSizePixel, editorScroll.ScrollBarThickness, editorScroll.Parent = UDim2.new(1, -12, 1, -74), UDim2.new(0, 6, 0, 34), 1, 0, 5, editorFrame
+
+local valueBoxes, currentY = {}, 4
+local function addSectionHeader(txt)
+	local h = Instance.new("TextLabel")
+	h.Size, h.Position, h.BackgroundColor3, h.BorderSizePixel, h.Font, h.TextSize, h.Text, h.Parent = UDim2.new(1, -8, 0, 20), UDim2.new(0, 4, 0, currentY), Color3.fromRGB(22,22,22), 0, Enum.Font.Code, 12, "-- "..txt.." --", editorScroll
+	registerRGBText(h) currentY = currentY + 24
+end
+
+local function createControlRow(lblTxt, pType, ax, step)
+	local l = Instance.new("TextLabel")
+	l.Size, l.Position, l.BackgroundTransparency, l.Font, l.TextSize, l.TextColor3, l.TextXAlignment, l.Text, l.Parent = UDim2.new(0, 95, 0, 24), UDim2.new(0, 4, 0, currentY), 1, Enum.Font.Code, 12, Color3.fromRGB(220,220,220), Enum.TextXAlignment.Left, lblTxt, editorScroll
+	local mBtn = makeSquaredButton(editorScroll, "-", UDim2.new(0, 28, 0, 24), UDim2.new(0, 102, 0, currentY))
+	local vBox = Instance.new("TextBox")
+	vBox.Size, vBox.Position, vBox.BackgroundColor3, vBox.BorderSizePixel, vBox.Font, vBox.TextSize, vBox.TextColor3, vBox.Text, vBox.ClearTextOnFocus, vBox.Parent = UDim2.new(0, 96, 0, 24), UDim2.new(0, 134, 0, currentY), Color3.fromRGB(18,18,18), 0, Enum.Font.Code, 12, Color3.fromRGB(255,255,255), "0", false, editorScroll
+	local bSt = Instance.new("UIStroke") bSt.Thickness, bSt.ApplyStrokeMode, bSt.Parent = 2, Enum.ApplyStrokeMode.Border, vBox registerRGBStroke(bSt)
+	local pBtn = makeSquaredButton(editorScroll, "+", UDim2.new(0, 28, 0, 24), UDim2.new(0, 234, 0, currentY))
+	valueBoxes[pType .. (ax and ("_"..ax) or "")] = vBox
+
+	local function upd(del, dir)
+		if not currentJointKey or not jointsData[currentJointKey] then return end
+		local d = jointsData[currentJointKey]
+		if ax then
+			local v = d[pType]
+			local nv = math.floor(((dir ~= nil and dir or (v[ax] + del)) * 1000) + 0.5) / 1000
+			d[pType] = Vector3.new(ax=="X" and nv or v.X, ax=="Y" and nv or v.Y, ax=="Z" and nv or v.Z)
+			vBox.Text = tostring(nv)
+		else
+			local nv = math.floor(((dir ~= nil and dir or (d[pType] + del)) * 1000) + 0.5) / 1000
+			d[pType] = nv vBox.Text = tostring(nv)
+		end
+	end
+	mBtn.MouseButton1Click:Connect(function() upd(-step, nil) end)
+	pBtn.MouseButton1Click:Connect(function() upd(step, nil) end)
+	vBox.FocusLost:Connect(function()
+		local n = tonumber(vBox.Text)
+		if n then upd(0, n) elseif currentJointKey and jointsData[currentJointKey] then local d = jointsData[currentJointKey] vBox.Text = tostring(ax and d[pType][ax] or d[pType]) end
+	end)
+	currentY = currentY + 28
+end
+
+addSectionHeader("POSITION") createControlRow("Pos X:", "pos", "X", 0.1) createControlRow("Pos Y:", "pos", "Y", 0.1) createControlRow("Pos Z:", "pos", "Z", 0.1)
+addSectionHeader("ROTATION (DEG)") createControlRow("Rot X:", "rot", "X", 5) createControlRow("Rot Y:", "rot", "Y", 5) createControlRow("Rot Z:", "rot", "Z", 5)
+addSectionHeader("SIN POSITION") createControlRow("Sin Pos X:", "sinPos", "X", 0.05) createControlRow("Sin Pos Y:", "sinPos", "Y", 0.05) createControlRow("Sin Pos Z:", "sinPos", "Z", 0.05) createControlRow("Sin Speed Pos:", "sinPosSpeed", nil, 0.5)
+addSectionHeader("SIN ROTATION (DEG)") createControlRow("Sin Rot X:", "sinRot", "X", 1) createControlRow("Sin Rot Y:", "sinRot", "Y", 1) createControlRow("Sin Rot Z:", "sinRot", "Z", 1) createControlRow("Sin Speed Rot:", "sinRotSpeed", nil, 0.5)
+editorScroll.CanvasSize = UDim2.new(0, 0, 0, currentY + 10)
+hb--================================================
+-- PARTE 3 DI 3: EXPORT PATCHMA HUB, SELEZIONE & RGB
+--================================================
+local resetBtn = makeSquaredButton(editorFrame, "RESET ARTO", UDim2.new(1, -12, 0, 28), UDim2.new(0, 6, 1, -34))
+resetBtn.MouseButton1Click:Connect(function()
+	if not currentJointKey or not jointsData[currentJointKey] then return end
+	local d = jointsData[currentJointKey]
+	d.pos, d.rot, d.sinPos, d.sinRot, d.sinPosSpeed, d.sinRotSpeed = Vector3.new(), Vector3.new(), Vector3.new(), Vector3.new(), 2, 3
+	for k, b in pairs(valueBoxes) do b.Text = (k == "sinPosSpeed" and "2") or (k == "sinRotSpeed" and "3") or "0" end
+end)
+
+local function openEditorForKey(key)
+	currentJointKey = key
+	local d = jointsData[key]
+	if not d then return end
+	titleLabel.Text = "JOINT: " .. key
+	for _, ax in ipairs({"X", "Y", "Z"}) do
+		valueBoxes["pos_"..ax].Text, valueBoxes["rot_"..ax].Text = tostring(d.pos[ax]), tostring(d.rot[ax])
+		valueBoxes["sinPos_"..ax].Text, valueBoxes["sinRot_"..ax].Text = tostring(d.sinPos[ax]), tostring(d.sinRot[ax])
+	end
+	valueBoxes["sinPosSpeed"].Text, valueBoxes["sinRotSpeed"].Text = tostring(d.sinPosSpeed), tostring(d.sinRotSpeed)
+	editorFrame.Visible = true
+end
+
+local exportFrame = makeSquaredFrame(screenGui, UDim2.new(0, 560, 0, 380), UDim2.new(0.5, 0, 0.5, 0), Vector2.new(0.5, 0.5))
+exportFrame.Visible = false
+local exportTitle = Instance.new("TextLabel")
+exportTitle.Size, exportTitle.Position, exportTitle.BackgroundTransparency, exportTitle.Font, exportTitle.TextSize, exportTitle.TextXAlignment, exportTitle.Text, exportTitle.Parent = UDim2.new(1, -115, 0, 30), UDim2.new(0, 10, 0, 4), 1, Enum.Font.Code, 14, Enum.TextXAlignment.Left, "PATCHMA HUB OUTPUT (C0 & C1)", exportFrame
+registerRGBText(exportTitle)
+
+local copyBtn = makeSquaredButton(exportFrame, "COPIA", UDim2.new(0, 70, 0, 26), UDim2.new(1, -36, 0, 4), Vector2.new(1, 0))
+local closeExportBtn = makeSquaredButton(exportFrame, "X", UDim2.new(0, 26, 0, 26), UDim2.new(1, -4, 0, 4), Vector2.new(1, 0))
+closeExportBtn.MouseButton1Click:Connect(function() exportFrame.Visible = false end)
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size, scrollFrame.Position, scrollFrame.BackgroundColor3, scrollFrame.BorderSizePixel, scrollFrame.ScrollBarThickness, scrollFrame.Parent = UDim2.new(1, -16, 1, -46), UDim2.new(0, 8, 0, 38), Color3.fromRGB(16,16,16), 0, 6, exportFrame
+
+local codeOutputBox = Instance.new("TextBox")
+codeOutputBox.Size, codeOutputBox.Position, codeOutputBox.BackgroundTransparency, codeOutputBox.Font, codeOutputBox.TextSize, codeOutputBox.TextColor3, codeOutputBox.TextXAlignment, codeOutputBox.TextYAlignment, codeOutputBox.MultiLine, codeOutputBox.ClearTextOnFocus, codeOutputBox.TextEditable, codeOutputBox.Text, codeOutputBox.Parent = UDim2.new(1, -10, 1, 0), UDim2.new(0, 5, 0, 0), 1, Enum.Font.Code, 12, Color3.fromRGB(240,240,240), Enum.TextXAlignment.Left, Enum.TextYAlignment.Top, true, false, false, "", scrollFrame
+
+copyBtn.MouseButton1Click:Connect(function()
+	if setclipboard then setclipboard(codeOutputBox.Text) copyBtn.Text = "COPIATO!" task.delay(1.5, function() copyBtn.Text = "COPIA" end) end
+end)
+
+local function fmtNum(n) local r = math.floor(n * 100000 + 0.5) / 100000 return tostring(r == -0 and 0 or r) end
+local function buildAxisExpr(b, amp, spd)
+	if amp == 0 then return fmtNum(b) end
+	local term = fmtNum(math.abs(amp)) .. " * sin(sine * " .. fmtNum(spd) .. ")"
+	return b == 0 and ((amp < 0 and "-" or "") .. term) or (fmtNum(b) .. (amp >= 0 and " + " or " - ") .. term)
+end
+
+local function formatPatchmaCFrame(jName, pName, d, patchBaseCF)
+	-- Calcola la posa finale partendo dall'offset di Patchma Hub
+	local sCF = patchBaseCF * CFrame.new(d.pos) * CFrame.Angles(math.rad(d.rot.X), math.rad(d.rot.Y), math.rad(d.rot.Z))
+	local bx, by, bz = sCF.X, sCF.Y, sCF.Z
+	local brx, bry, brz = sCF:ToEulerAnglesXYZ()
+	local wSin = patchBaseCF:VectorToWorldSpace(d.sinPos)
+	local sRx, sRy, sRz = math.rad(d.sinRot.X), math.rad(d.sinRot.Y), math.rad(d.sinRot.Z)
+
+	if pName == "C1" then
+		bx, by, bz = patchBaseCF.X, patchBaseCF.Y, patchBaseCF.Z
+		brx, bry, brz = patchBaseCF:ToEulerAnglesXYZ()
+		wSin, sRx, sRy, sRz = Vector3.new(), 0, 0, 0
+	end
+
+	local pStr = string.format("cf(%s, %s, %s)", buildAxisExpr(bx, wSin.X, d.sinPosSpeed), buildAxisExpr(by, wSin.Y, d.sinPosSpeed), buildAxisExpr(bz, wSin.Z, d.sinPosSpeed))
+	local aStr = string.format("angles(%s, %s, %s)", buildAxisExpr(brx, sRx, d.sinRotSpeed), buildAxisExpr(bry, sRy, d.sinRotSpeed), buildAxisExpr(brz, sRz, d.sinRotSpeed))
+	return string.format("%s.%s = Lerp(%s.%s, cfMul(%s, %s), deltaTime)", jName, pName, jName, pName, pStr, aStr)
+end
+
+topSquareBtn.MouseButton1Click:Connect(function()
+	local lines = {"-- === C0 ANIMATION (PATCHMA HUB) ==="}
+	for k, d in pairs(jointsData) do if d.joint then table.insert(lines, formatPatchmaCFrame(k, "C0", d, d.patchC0)) end end
+	table.insert(lines, "\n-- === C1 ANIMATION (PATCHMA HUB) ===")
+	for k, d in pairs(jointsData) do if d.joint then table.insert(lines, formatPatchmaCFrame(k, "C1", d, d.patchC1)) end end
+	codeOutputBox.Text = table.concat(lines, "\n")
+	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, #lines * 18 + 30)
+	exportFrame.Visible = not exportFrame.Visible
+end)
+
+UIS.InputBegan:Connect(function(inp, proc)
+	if proc or (inp.UserInputType ~= Enum.UserInputType.Touch and inp.UserInputType ~= Enum.UserInputType.MouseButton1) then return end
+	local cam = Workspace.CurrentCamera
+	if not character or not cam then return end
+	local ray = cam:ScreenPointToRay(inp.Position.X, inp.Position.Y)
+	local params = RaycastParams.new()
+	params.FilterType, params.FilterDescendantsInstances = Enum.RaycastFilterType.Include, {character}
+	local res = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+	if not res or not res.Instance:IsA("BasePart") then return end
+	outline.Adornee = res.Instance
+	local acc = res.Instance:FindFirstAncestorOfClass("Accessory")
+	if acc then
+		local aj = acc:FindFirstChildWhichIsA("Weld", true) or acc:FindFirstChildWhichIsA("Motor6D", true)
+		if aj then local cn = acc.Name:gsub("%s+", "") .. "Joint" setupJointEntry(cn, aj, aj.C0, aj.C1, aj.C0, aj.C1) openEditorForKey(cn) end
+	else
+		local jn = PART_TO_JOINT[res.Instance.Name]
+		local j = jn and findJointInCharacter(character, jn)
+		if j then setupJointEntry(jn, j, REAL_R6_OFFSETS[jn].C0, REAL_R6_OFFSETS[jn].C1, PATCHMA_OFFSETS[jn].C0, PATCHMA_OFFSETS[jn].C1) openEditorForKey(jn) end
+	end
+end)
+
+player.CharacterAdded:Connect(function(nc) character = nc outline.Adornee = nil editorFrame.Visible = false task.wait(0.5) initCharacterJoints(nc) end)
+
+RunService.RenderStepped:Connect(function()
+	hue = (hue + 0.003) % 1
+	rgbColor = Color3.fromHSV(hue, 1, 1)
+	outline.Color3 = rgbColor
+	for _, s in ipairs(rgbStrokes) do if s and s.Parent then s.Color = rgbColor end end
+	for _, t in ipairs(rgbTexts) do if t and t.Parent then t.TextColor3 = rgbColor end end
+end)
